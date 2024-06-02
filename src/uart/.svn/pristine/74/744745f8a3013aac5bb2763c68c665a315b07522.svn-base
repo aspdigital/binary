@@ -1,0 +1,80 @@
+/*
+ * uart.h
+ *
+ *  Created on: Jan 30, 2016
+ *      Author: andy
+ */
+
+#ifndef UART_H_
+#define UART_H_
+#include <si_toolchain.h>
+#include <SI_C8051F310_Register_Enums.h>
+#include "hardware.h"
+
+/*
+ * UartInitFifos():
+ *
+ * Initialize the FIFO pointers to zero (both FIFOs empty) and explicitly
+ * clear the FIFO contents which eases debug.
+ */
+void UartInitFifos(void);
+
+/*
+ * isUartEOL():
+ *
+ * Indicate that we've received an end-of-line, which could indicate that a
+ * full packet has been received.
+ */
+bit isUartEOL(void);
+
+/*
+ * isUartRxFifoEmpty():
+ *
+ * Return true when the receive FIFO is empty.
+ */
+bit isUartRxFifoEmpty(void);
+
+/*
+ * isUartTxFifoFull():
+ *
+ * Return true when the transmit FIFO is full.
+ */
+bit isUartTxFifoFull(void);
+
+/*
+ * isUartTxFifoEmpty():
+ *
+ * Return true when the transmit FIFO is empty.
+ */
+bit isUartTxFifoEmpty(void);
+
+/*
+ * UartReadRxFifo():
+ *
+ * Read the character at the top of the receive FIFO.
+ */
+unsigned char UartReadRxFifo(void);
+
+/*
+ * UartWriteCharToTxFifo()
+ * Write a single character to the FIFO.
+ */
+void UartWriteCharToTxFifo(unsigned char ch);
+
+/*
+ * UartWriteTxFifo():
+ *
+ * Write cnt chars in str to the transmit FIFO.
+ * If the FIFO is full, or fills, wait for it to have space left before
+ * writing.
+ */
+void UartWriteTxFifo(unsigned char *str, unsigned char cnt);
+
+/*
+ * UartWriteStringToTxFifo():
+ * Similar to above, but instead of specifying the size of the string as an
+ * argument, we accept a null-terminated string.
+ */
+void UartWriteStringToTxFifo(unsigned char *str);
+
+#endif /* UART_H_ */

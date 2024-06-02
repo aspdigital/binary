@@ -1,0 +1,179 @@
+/*
+ * uart.c
+ *
+ *  Created on: Jan 30, 2016
+ *      Author: andy
+ *  Modified:
+ *  2016-01-30 ASP created.
+ *  2021-11-14 asp: replace compiler_defs.h with si_toolchain.h, because of deprecation by SiLabs.
+ *
+ *  Convenient UART functions.
+ */
+#include <si_toolchain.h>
+#include <SI_C8051F310_Register_Enums.h>
+#include "uart.h"
+#include <string.h>
+
+static unsigned char xdata RxFifo[FDEPTH];
+static unsigned char xdata RxWrPtr;
+static unsigned char xdata RxRdPtr;
+static unsigned char xdata TxFifo[FDEPTH];
+static unsigned char xdata TxWrPtr;
+static unsigned char xdata TxRdPtr;
+static bit TxReady;
+static bit gotEOL;
+
+/*
+ * UartInitFifos():
+ *
+ * Initialize the FIFO pointers to zero (both FIFOs empty) and explicitly
+ * clear the FIFO contents which eases debug.
+ */
+void UartInitFifos(void) {
+    gotEOL = 0;
+	RxWrPtr = 0;
+	RxRdPtr = 0;
+	TxWrPtr = 0;
+	TxRdPtr = 0;
+	TxReady = 1;
+	// clear FIFO contents; good for debug.
+	memset(RxFifo, 0x00, FDEPTH);
+	memset(TxFifo, 0x00, FDEPTH);
+} // UartInitFifos()
+
+SI_INTERRUPT_USING(UART_ISR, UART0_IRQn, 1)
+{
+	unsigned char temp;
+
+	if (SCON0_RI)
+	{
+		SCON0_RI = 0;
+		temp = SBUF0;
+		RxFifo[RxWrPtr] = temp;
+		RxWrPtr = (RxWrPtr + 1) % FDEPTH;
+		if (temp == '\n')
+			gotEOL = 1;
+	}
+
+	if (SCON0_TI)
+	{
+		SCON0_TI = 0;
+		if (TxWrPtr != TxRdPtr)
+		{
+			// FIFO not empty.
+			temp = TxFifo[TxRdPtr];
+			SBUF0 = temp;
+			TxRdPtr = (TxRdPtr + 1) % FDEPTH;
+			TxReady = 0;
+		} else {
+			TxReady = 1;
+		}
+	}
+} // UART ISR
+
+/*
+ * isUartEOL():
+ *
+ * Indicate that we've received an end-of-line, which could indicate that a
+ * full packet has been received.
+ * Clear gotEOL ONLY if it's actually true at the instant we read it.  (The
+ * interrupt may set it after we copy it to rval but before we clear it, hence
+ * the true case is never seen by the caller.
+ */
+bit isUartEOL(void) {
+    if (gotEOL) {
+    	gotEOL = 0;
+        return 1;
+    }
+    else
+        return 0;
+} // isUartEOL()
+
+/*
+ * isUartRxFifoEmpty():
+ *
+ * Return true when the receive FIFO is empty.
+ */
+bit isUartRxFifoEmpty(void) {
+	return (RxWrPtr == RxRdPtr);
+} // isUartRxFifoEmpty()
+
+/*
+ * isUartTxFifoFull():
+ *
+ * Return true when the transmit FIFO is full.
+ */
+bit isUartTxFifoFull(void) {
+	if (TxWrPtr > TxRdPtr)
+		return (TxWrPtr == (TxRdPtr + FDEPTH - 1));
+	else
+		return (TxWrPtr == (TxRdPtr - 1));
+} // isUartTxFifoFull()
+
+/*
+ * isUartTxFifoEmpty():
+ *
+ * Return true when the transmit FIFO is empty.
+ */
+bit isUartTxFifoEmpty(void) {
+	return (TxWrPtr == TxRdPtr);
+} // isUartTxFifoEmpty()
+
+/*
+ * UartReadRxFifo():
+ *
+ * Read the character at the top of the receive FIFO.
+ */
+unsigned char UartReadRxFifo(void) {
+	unsigned char retval = RxFifo[RxRdPtr];
+	RxRdPtr = (RxRdPtr + 1) % FDEPTH;
+	return (retval);
+} // UartReadRxFifo()
+
+/*
+ * UartWriteCharToTxFifo()
+ * Write a single character to the FIFO.
+ * After adding it to the FIFO, if the transmitter is idle, start transmission
+ * by firing the transmit interrupt. The ISR is what actually writes to SBUF.
+ */
+void UartWriteCharToTxFifo(unsigned char ch) {
+    while (isUartTxFifoFull())
+        ;
+    TxFifo[TxWrPtr] = ch;
+    TxWrPtr = (TxWrPtr + 1) % FDEPTH;
+    IE_ES0 = 0;
+    if (TxReady)
+    	SCON0_TI = 1;
+    IE_ES0 = 1;
+} // UartWriteCharToTxFifo()
+
+/*
+ * UartWriteTxFifo():
+ *
+ * Write cnt chars in str to the transmit FIFO.
+ * If the FIFO is full, or fills, wait for it to have space left before
+ * writing.
+ */
+void UartWriteTxFifo(unsigned char *str, unsigned char cnt) {
+	while (cnt != 0) {
+        UartWriteCharToTxFifo(*str++);
+    	--cnt;
+	} // while (cnt != 0)
+} // UartWriteTxFifo()
+
+/*
+ * UartWriteStringToTxFifo():
+ * Similar to above, but instead of specifying the size of the string as an
+ * argument, we accept a null-terminated string.
+ */
+void UartWriteStringToTxFifo(unsigned char *str) {
+    while (*str) {
+        UartWriteCharToTxFifo(*str++);
+	} // if not end of string
+} // UartWriteStringToTxFifo()
+
+
+
+
+
+

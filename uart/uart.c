@@ -37,8 +37,8 @@ void UartInitFifos(void) {
 	TxRdPtr = 0;
 	TxReady = 1;
 	// clear FIFO contents; good for debug.
-	memset(RxFifo, 0x00, FDEPTH);
-	memset(TxFifo, 0x00, FDEPTH);
+//	memset(RxFifo, 0x00, FDEPTH);
+//	memset(TxFifo, 0x00, FDEPTH);
 } // UartInitFifos()
 
 SI_INTERRUPT_USING(UART_ISR, UART0_IRQn, 1)

@@ -11,6 +11,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include "uart.h"
+#include "adc_read.h"
 
 //-----------------------------------------------------------------------------
 // SiLabs_Startup() Routine
@@ -24,12 +25,6 @@ void SiLabs_Startup(void) {
 	// $[SiLabs Startup]
 	// [SiLabs Startup]$
 }
-
-/*
- * For our ADC averager.
- */
-static volatile uint16_t adcval;			// averaged ADC value
-static volatile bool got_new_adc_val;		// true when that value is updated
 
 /*
  * Keep track of the number of times t3 has overflowed. 20 times is 200 ms.
@@ -83,34 +78,6 @@ sbit LED_B = P1^7;
 
 #define LED_OFF 1
 #define LED_ON  0
-
-/*
- * ADC interrupt service routine.
- *
- * Average 512 samples into the final result. The accumulator is 19 bits.
- */
-SI_INTERRUPT_USING(ADC_ISR, ADC0EOC_IRQn, 2)
-{
-	static uint32_t adcacc = 0;
-	static uint16_t avgcnt = 0;
-
-	/* Clear the interrupt flag, or else we go nowhere. */
-	ADC0CN0_ADINT = 0;
-
-	/* update the accumulator for the average.
-	 * When we have enough, update the average and tell the world it's ready. */
-	adcacc += ADC0;
-
-	if( avgcnt == 512 )
-	{
-		avgcnt = 0;
-		adcval = (uint16_t) (adcacc >> 9);
-		adcacc = 0;
-		got_new_adc_val = true;
-	} else {
-		++avgcnt;
-	}
-}
 
 /*
  * ISR for Timer 3.
@@ -167,7 +134,6 @@ void main(void)
 	/* Useful for debug */
 	memset(rxstr, 0x00, FDEPTH);
 
-	got_new_adc_val = false;
 	prev_adc_val = 0;
 	state = S_IDLE;
 	t3_of_cnt = 0;
@@ -195,10 +161,9 @@ void main(void)
 
 		/* Don't do anything until we have a new ADC value. */
 
-		if( got_new_adc_val )
+		if( ADC_is_new_avg() )
 		{
-			got_new_adc_val = false;
-			this_adc_val = adcval;
+			this_adc_val = ADC_get_value();
 
 			switch (state) {
 			case S_GOT_A_PRESS :
@@ -208,8 +173,8 @@ void main(void)
 				 * If they are the same within the specified TOLERANCE,
 				 * see if we've waited the full debounce time.
 				 */
-				if( (prev_adc_val < (this_adc_val + TOLERANCE)) &&
-					(prev_adc_val > (this_adc_val - TOLERANCE)) )
+				if( (prev_adc_val > (this_adc_val + TOLERANCE)) ||
+					(prev_adc_val < (this_adc_val - TOLERANCE)) )
 				{
 					prev_adc_val = this_adc_val;
 

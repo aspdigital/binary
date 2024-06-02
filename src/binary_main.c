@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include "uart.h"
 #include "adc_read.h"
+#include "stable_timer.h"
 
 //-----------------------------------------------------------------------------
 // SiLabs_Startup() Routine
@@ -25,24 +26,6 @@ void SiLabs_Startup(void) {
 	// $[SiLabs Startup]
 	// [SiLabs Startup]$
 }
-
-/*
- * Keep track of the number of times t3 has overflowed. 20 times is 200 ms.
- */
-static volatile uint8_t t3_of_cnt;
-
-/*
- * How many ticks of our 10 ms timer do we wait for stability?
- * Possibly override by compiler settings.
- */
-#ifndef STABLE_TIME
-#define STABLE_TIME 250
-#endif
-
-/*
- * Indicate the hold time interval has ended.
- */
-static volatile bool waited_stable_time;
 
 /*
  * Any ADC reading above this value means we've pressed something.
@@ -80,44 +63,6 @@ sbit LED_B = P1^7;
 #define LED_ON  0
 
 /*
- * ISR for Timer 3.
- *
- * Timer 3 sets the interval for testing "stable" button presses. That is:
- *
- * "Idle" means no presses, and the ADC reads a low (if not zero) value.
- * Anything else means a press.
- * When a press is detected, this timer is started and the ADC value (the
- * button press state) is saved.. When the timer expires, we see if the most
- * recent press matches the saved, and if so we declare the pressed value is
- * correct. If new reading does not match previous, we don't have our value
- * yet, so save the current value and try again.
- *
- * The button presses have to be stable for STABLE_TIME, which has a maximum
- * of 255 or 2550 ms.
- *
- * Timer 3 is clocked by SYSCLK / 12 or 4 MHz so its maximum count time is
- * 16.384 ms. We need to count multiple overflows of this timer to get to our
- * defined stable time.
- */
-SI_INTERRUPT_USING(T3ISR, TIMER3_IRQn, 3)
-{
-	/* first we must clear the interrupt condition. */
-	TMR3CN0 &= ~TMR3CN0_TF3H__SET;
-
-	/* if we've interrupted STABLE_TIME times, we have waited our debounce time
-	 * stop the timer, tell the world, prep for next time */
-	if (t3_of_cnt == STABLE_TIME)
-	{
-		waited_stable_time = true;
-		TMR3CN0 &= ~TMR3CN0_TR3__RUN;
-		EIE1 &= ~EIE1_ET3__ENABLED;
-		t3_of_cnt = 0;
-	} else {
-		++t3_of_cnt;
-	}
-}
-
-/*
  * Main!
  */
 void main(void)
@@ -136,8 +81,6 @@ void main(void)
 
 	prev_adc_val = 0;
 	state = S_IDLE;
-	t3_of_cnt = 0;
-	waited_stable_time = false;
 	LED_R = LED_OFF;
 	LED_G = LED_OFF;
 	LED_B = LED_OFF;
@@ -179,14 +122,11 @@ void main(void)
 					prev_adc_val = this_adc_val;
 
 					/* restart timer */
-					TMR3CN0 &= ~TMR3CN0_TR3__RUN;
-					TMR3 = 0x0000;
-					t3_of_cnt = 0;
-					TMR3CN0 |= TMR3CN0_TR3__RUN;
+					STABLE_TIMER_start();
 
 				} else {
 
-					if( waited_stable_time )
+					if( STABLE_TIMER_is_stable() )
 					{
 						/* A match! */
 						LED_B = LED_OFF;
@@ -234,10 +174,7 @@ void main(void)
 					state = S_GOT_A_PRESS;
 					LED_B = LED_ON;
 					/* start the hold timer */
-					waited_stable_time = false;
-					t3_of_cnt = 0;
-					EIE1 |= EIE1_ET3__ENABLED;
-					TMR3CN0 |= TMR3CN0_TR3__RUN;
+					STABLE_TIMER_start();
 				}
 				break;
 
